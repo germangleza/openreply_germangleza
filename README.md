@@ -92,6 +92,8 @@ Two processes, always. `npm run dev` serves the app and receives webhooks. `npm 
 
 Full environment variables and the production layout are in [docs/setup.md](docs/setup.md).
 
+Deploying everything (web, worker, cron, Postgres, Redis) on Railway alone? See [docs/railway-es.md](docs/railway-es.md) (Spanish) and the `railway.json` / `railway/*.json` config files.
+
 ## Set it up with your AI assistant
 
 If you use Claude Code, Cursor, or a similar tool, an assistant can walk you through either connection path. There is a ready-made prompt in the [Set it up with an AI assistant](docs/setup.md#set-it-up-with-an-ai-assistant) section of the setup guide. Paste it into your assistant inside a clone of this repo, choose your provider before configuring any Meta secrets, and it will walk you through connecting Instagram and going live.
