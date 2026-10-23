@@ -92,7 +92,7 @@ Two processes, always. `npm run dev` serves the app and receives webhooks. `npm 
 
 Full environment variables and the production layout are in [docs/setup.md](docs/setup.md).
 
-Deploying everything (web, worker, cron, Postgres, Redis) on Railway alone? See [docs/railway-es.md](docs/railway-es.md) (Spanish) and the `railway.json` / `railway/*.json` config files.
+Deploying everything (web, worker, cron, Postgres, Redis) on Railway alone? See [docs/railway-es.md](docs/railway-es.md) (Spanish) and `railway.json`, which runs web, worker and cron in one service.
 
 ## Set it up with your AI assistant
 

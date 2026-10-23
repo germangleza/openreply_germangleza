@@ -1,134 +1,66 @@
-# Desplegar OpenReply todo en Railway (guía en español)
+# OpenReply en Railway, paso a paso (en español)
 
-Esta guía monta OpenReply completo en **un solo proyecto de Railway**, sin Vercel y sin terminal:
+Todo vive en **un solo proyecto de Railway** con **3 cajitas**:
 
-| Servicio en Railway | Qué es | Archivo de config |
-| --- | --- | --- |
-| `Postgres` | Base de datos | (plantilla de Railway) |
-| `Redis` | Cola de envíos | (plantilla de Railway) |
-| `web` | Dashboard, login, webhook de Meta | `railway.json` (por defecto) |
-| `worker` | Proceso que **manda los DMs** | `railway/worker.json` |
-| `cron` | Refresca tokens de Instagram cada día, etc. | `railway/cron.json` |
+| Cajita | Qué hace |
+| --- | --- |
+| `Postgres` | Guarda tus campañas y mensajes |
+| `Redis` | La fila de mensajes por mandar |
+| `web` (tu repo) | La página, el robot que manda los DMs y la tarea diaria que renueva el token de Instagram |
 
-Los tres servicios de código salen del mismo repo y del mismo `Dockerfile`; solo cambia el comando de arranque. Las migraciones de la base de datos se aplican solas en el servicio `web` (pre-deploy), así que **no necesitas correr `npm run db:migrate` desde tu máquina**.
+El servicio `web` arranca las tres cosas solo, con `scripts/railway-start.sh`, y aplica las migraciones de la base de datos en cada deploy. No hace falta terminal.
 
-## 1. Bases de datos
+## Paso 1: Agregar Postgres y Redis
 
-En el proyecto de Railway: **+ New → Database → Add PostgreSQL**, y luego **+ New → Database → Add Redis**. Déjales los nombres `Postgres` y `Redis` (las referencias de abajo usan esos nombres).
+En tu proyecto de Railway: **+ Create → Database → PostgreSQL**. Luego otra vez: **+ Create → Database → Redis**.
 
-## 2. Servicio `web`
+## Paso 2: Darle una dirección a tu página
 
-Es el servicio que ya conectaste al repo. Renómbralo a `web` (Settings → nombre del servicio).
+Abre el servicio de tu repo → **Settings → Networking → Generate Domain**. Copia la dirección que sale (por ejemplo `web-production-1234.up.railway.app`). En esta guía la llamamos **TU-DOMINIO**.
 
-1. **Settings → Networking → Generate Domain.** Te da algo como `web-production-xxxx.up.railway.app`. Esa es tu URL pública (si te pregunta el puerto, pon el que muestre Railway, normalmente `8080`).
-2. **Settings → Config-as-code:** déjalo en `railway.json` (es el valor por defecto).
-3. **Variables → Raw Editor**, pega esto y rellena:
+## Paso 3: Pegar las variables
+
+Servicio de tu repo → **Variables → Raw Editor**, pega esto y cambia lo que está entre `< >`:
 
 ```env
-NEXTAUTH_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
-NEXTAUTH_SECRET=<generado>
-CRON_SECRET=<generado>
-ENCRYPTION_KEY=<generado, 64 caracteres hex>
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 REDIS_URL=${{Redis.REDIS_URL}}?family=0
-
-RESEND_API_KEY=re_...
+NEXTAUTH_SECRET=<secreto>
+CRON_SECRET=<secreto>
+ENCRYPTION_KEY=<secreto de 64 letras y números>
+WEBHOOK_VERIFY_TOKEN=<secreto>
+RESEND_API_KEY=<tu llave de Resend>
 EMAIL_FROM=OpenReply <onboarding@resend.dev>
-ALLOWED_EMAILS=tu-correo@gmail.com
-
-META_GRAPH_API_VERSION=v25.0
-INSTAGRAM_APP_ID=...
-INSTAGRAM_APP_SECRET=...
-FACEBOOK_APP_SECRET=...
-WEBHOOK_VERIFY_TOKEN=<generado>
+ALLOWED_EMAILS=<tu correo>
+INSTAGRAM_APP_ID=<de Meta>
+INSTAGRAM_APP_SECRET=<de Meta>
+FACEBOOK_APP_SECRET=<de Meta>
 ```
 
-Notas:
+`NEXTAUTH_URL` se llena solo con TU-DOMINIO. Los secretos se generan con `openssl rand -hex 32`.
 
-- `?family=0` en `REDIS_URL` es necesario en la red privada de Railway (IPv6); sin eso BullMQ no conecta.
-- Genera los secretos con `openssl rand -hex 32` (o pídeselos a tu asistente). **`ENCRYPTION_KEY` tiene que ser exactamente la misma en `web` y `worker`.**
-- `ALLOWED_EMAILS` evita que cualquiera que encuentre tu URL se cree una cuenta.
+## Paso 4: Resend (el correo para entrar)
 
-## 3. Correo de login (Resend)
+Para entrar, OpenReply te manda un enlace a tu correo. Crea una cuenta gratis en [resend.com](https://resend.com) → **API Keys → Create API Key** y pégala en `RESEND_API_KEY`. Sin dominio propio, entra a OpenReply con **el mismo correo de tu cuenta de Resend** (es el único al que Resend deja mandar desde `onboarding@resend.dev`).
 
-El login es solo por *magic link* al correo. Railway bloquea SMTP saliente en los planes Trial/Hobby, así que usa **Resend** (va por HTTPS).
+## Paso 5: Revisar que está vivo
 
-1. Crea cuenta en [resend.com](https://resend.com) y una API key → `RESEND_API_KEY`.
-2. **Sin dominio propio:** usa `EMAIL_FROM=OpenReply <onboarding@resend.dev>`. Resend solo entrega a **el mismo correo con el que creaste la cuenta de Resend**, así que entra a OpenReply con ese correo. Para uso personal es suficiente.
-3. **Con dominio:** verifícalo en Resend y usa `EMAIL_FROM=OpenReply <login@tudominio.com>`.
+Abre `https://TU-DOMINIO/api/health`. Tiene que decir `"status":"ok"`. Luego entra a `https://TU-DOMINIO/login`.
 
-## 4. Servicio `worker`
+## Paso 6: Meta
 
-**+ New → GitHub Repo →** el mismo repo. Renómbralo a `worker`.
+En [developers.facebook.com/apps](https://developers.facebook.com/apps) → tu app → **Instagram → API setup with Instagram login**:
 
-1. **Settings → Config-as-code → Railway config file:** `railway/worker.json`
-2. **No** le generes dominio público.
-3. **Variables:** las mismas que `web`, excepto que `NEXTAUTH_URL` apunta al dominio de `web`. Lo más fácil es pegar esto en el Raw Editor:
+1. Copia **Instagram app ID** e **Instagram app secret** a las variables. El **App secret** de *App settings → Basic* va en `FACEBOOK_APP_SECRET`.
+2. **Roles → Instagram testers** → agrega tu usuario. En la app de Instagram: *Configuración → Apps y sitios web → Invitaciones de tester → Aceptar*.
+3. **OAuth redirect URI:** `https://TU-DOMINIO/api/instagram/callback`
+4. **Webhooks:** Callback URL `https://TU-DOMINIO/api/webhook`, Verify token = tu `WEBHOOK_VERIFY_TOKEN`, y suscríbete a `comments` y `messages`.
+5. **Publish:** pon `https://TU-DOMINIO/privacy`, `https://TU-DOMINIO/terms` y `https://TU-DOMINIO/data-deletion`, y publica. Si la app no está publicada, Meta no manda los comentarios.
 
-```env
-NEXTAUTH_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
-NEXTAUTH_SECRET=${{web.NEXTAUTH_SECRET}}
-ENCRYPTION_KEY=${{web.ENCRYPTION_KEY}}
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-REDIS_URL=${{Redis.REDIS_URL}}?family=0
-META_GRAPH_API_VERSION=${{web.META_GRAPH_API_VERSION}}
-INSTAGRAM_APP_ID=${{web.INSTAGRAM_APP_ID}}
-INSTAGRAM_APP_SECRET=${{web.INSTAGRAM_APP_SECRET}}
-FACEBOOK_APP_SECRET=${{web.FACEBOOK_APP_SECRET}}
-```
+Tu Instagram tiene que ser cuenta **Business o Creator**.
 
-## 5. Servicio `cron`
+## Paso 7: Probar
 
-Sin esto el token de Instagram caduca a los ~60 días y todo deja de responder **sin ningún error**.
-
-**+ New → GitHub Repo →** el mismo repo. Renómbralo a `cron`.
-
-1. **Settings → Config-as-code → Railway config file:** `railway/cron.json`
-2. Sin dominio público.
-3. **Variables:**
-
-```env
-CRON_BASE_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
-CRON_SECRET=${{web.CRON_SECRET}}
-```
-
-## 6. Comprobar que todo está vivo
-
-Abre `https://TU-DOMINIO/api/health`. Debe responder `"status": "ok"` y `worker.healthy: true`. Si `worker.healthy` es `false`, revisa los logs del servicio `worker`.
-
-Luego entra a `https://TU-DOMINIO/login` con tu correo y abre el enlace que te llega.
-
-## 7. Configurar la app de Meta
-
-Con tu dominio de Railway (`https://TU-DOMINIO`), en [developers.facebook.com/apps](https://developers.facebook.com/apps) → tu app → producto **Instagram → API setup with Instagram login**:
-
-1. **Caso de uso:** "Manage messaging and content on Instagram" (no Facebook Login, no Marketing API).
-2. **Secretos:**
-   - `INSTAGRAM_APP_ID` y `INSTAGRAM_APP_SECRET`: en la página del producto Instagram (el ID de Instagram **no** es el App ID de Facebook).
-   - `FACEBOOK_APP_SECRET`: App settings → Basic → App secret.
-3. **Tester:** App roles → Roles → Instagram testers → agrega tu usuario de Instagram. Luego **en la app de Instagram**: Configuración → Apps y sitios web → Invitaciones de tester → **Aceptar**. (Si no, sale "Insufficient Developer Role".)
-4. **OAuth redirect URI** (Business login settings), exacto y sin `/` final:
-   `https://TU-DOMINIO/api/instagram/callback`
-5. **Webhooks:**
-   - Callback URL: `https://TU-DOMINIO/api/webhook`
-   - Verify token: el mismo valor de `WEBHOOK_VERIFY_TOKEN`
-   - Verify and save, y suscríbete a **`comments`** y **`messages`**.
-6. **Publicar la app** (Publish en la barra lateral). Antes pon estas URLs, que OpenReply ya trae:
-   - `https://TU-DOMINIO/privacy`
-   - `https://TU-DOMINIO/terms`
-   - `https://TU-DOMINIO/data-deletion`
-
-   En modo Development **Meta no manda comentarios reales**, solo el botón de prueba. Es la causa #1 de "configuré todo y no pasa nada".
-
-Tu cuenta de Instagram tiene que ser **Business o Creator** (no personal).
-
-## 8. Probar
-
-1. En OpenReply: **Settings → Connect Instagram**.
-2. Crea una campaña en un post con la palabra clave `TEST`.
-3. Desde **otra** cuenta de Instagram comenta `TEST` en ese post (tus propios comentarios se ignoran a propósito).
-4. Debe llegar el DM. Si no, mira **DM Logs** y `/api/health`.
-
-Si la cuenta estuvo conectada antes a ManyChat u otra herramienta: Meta Business Suite → Configuración → Integraciones → Enrutamiento de conversaciones → quita la app vieja y en OpenReply activa "Access all conversations" y "Take control of conversations".
+En OpenReply: **Settings → Connect Instagram**, crea una campaña con la palabra `TEST`, y desde **otra** cuenta comenta `TEST` en ese post. Te debe llegar el DM.
 
 Más detalle (en inglés): [setup.md](setup.md).
